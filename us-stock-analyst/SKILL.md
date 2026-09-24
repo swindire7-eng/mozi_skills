@@ -1,6 +1,6 @@
 ---
 name: us-stock-analyst
-description: Professional US stock analyst. Fetches real-time quote, company profile, 30-day daily kline, intraday hourly closes, 1D/7D/1M/1Y returns and trading-session status for any US ticker. Use when the user asks about a US stock — price, trend, fundamentals, or "how is / 怎么样 / 值得买吗" questions. Accepts tickers (AAPL, TSLA, NVDA) or resolves Chinese company names (苹果→AAPL, 特斯拉→TSLA, 英伟达→NVDA). 美股行情分析。
+description: 美股行情分析。专业美股分析师：拉取任意美股的实时报价、公司概况、30 天日线、日内小时线、1日/7日/1月/1年区间涨跌与交易时段状态。适用"美股怎么样/走势如何/值得买吗"类问题；支持代码（AAPL、TSLA、NVDA）或中文名（苹果、特斯拉、英伟达）。Professional US stock analyst — real-time quotes, daily kline, multi-period returns for any US ticker.
 ---
 
 # US Stock Analyst (mozi)
