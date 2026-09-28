@@ -131,6 +131,22 @@ def _get_raw(path: str, base: str):
         return None
 
 
+def _klines(symbol: str, kline_type: int) -> list:
+    """K线 → [{"date","open","close","low","high"}]。type: 1=小时 2=日 3=周 4=月"""
+    raw = _get(f"/detail/kline?symbol={symbol}&type={kline_type}") or {}
+    vals = raw.get("values") or []
+    cats = raw.get("categoryData") or raw.get("xAxisData") or []
+    out = []
+    for i, v in enumerate(vals):
+        try:
+            o, c, l, h = (float(x) for x in v[:4])  # [open, close, low, high]
+            out.append({"date": cats[i] if i < len(cats) else "",
+                        "open": o, "close": c, "low": l, "high": h})
+        except (TypeError, ValueError, IndexError):
+            continue
+    return out
+
+
 def _bigorder(s: str) -> dict:
     """大单与主力资金（mozi 私有侦测引擎，核心差异化数据）。
 
@@ -204,15 +220,9 @@ def _report(s: str):
     if chg24 is not None and abs(chg24) > 200:
         chg24 = None
 
-    # 2. 日线（type=2）
-    daily = _get(f"/detail/kline?symbol={s}&type=2") or {}
-    values = daily.get("values") or []
-    closes = []
-    for v in values[-30:]:
-        try:
-            closes.append(float(v[1]))  # [open, close, low, high]
-        except (TypeError, ValueError, IndexError):
-            pass
+    # 2. 日线K线（type=2）
+    candles = _klines(s, 2)[-30:]
+    closes = [c["close"] for c in candles]
 
     # 3. 区间涨跌（带 % 字符串）
     roi_raw = _get(f"/easy/getReturnInvestment?symbol={s}")
@@ -235,15 +245,64 @@ def _report(s: str):
     print(f"- volume_24h: {header.get('totalVolume') or header.get('volume')}")
     print(f"- market_cap: {header.get('marketCap')}\n")
 
-    print("## 日线摘要(近30天) / Daily kline (30d)")
-    if closes:
+    print("## 日线K线(近30天) / Daily kline (30d)")
+    if candles:
         first, last = closes[0], closes[-1]
-        print(f"- latest_close: {last}")
-        print(f"- range_30d_pct: {round((last - first) / first * 100, 2) if first else None}")
-        print(f"- range_high: {max(closes)}")
-        print(f"- range_low: {min(closes)}")
+        lc = candles[-1]
+        ma7 = sum(closes[-7:]) / len(closes[-7:])
+        ma30 = sum(closes) / len(closes)
+        hi30 = max(c["high"] for c in candles)
+        lo30 = min(c["low"] for c in candles)
+        pos30 = round((last - lo30) / (hi30 - lo30) * 100, 1) if hi30 > lo30 else None
+        up = lc["close"] >= lc["open"]
+        streak = 1
+        for c in reversed(candles[:-1]):
+            if (c["close"] >= c["open"]) == up:
+                streak += 1
+            else:
+                break
+        up7 = sum(1 for c in candles[-7:] if c["close"] >= c["open"])
+        rets = [(closes[i] - closes[i - 1]) / closes[i - 1]
+                for i in range(1, len(closes)) if closes[i - 1]]
+        vol30 = None
+        if len(rets) >= 2:
+            m = sum(rets) / len(rets)
+            vol30 = round((sum((r - m) ** 2 for r in rets) / len(rets)) ** 0.5 * 100, 2)
+        print(f"- 最新一根: {lc['date']} 开 {lc['open']} 收 {lc['close']} 高 {lc['high']} 低 {lc['low']}")
+        print(f"- 30d涨跌: {round((last - first) / first * 100, 2) if first else None}%"
+              f" · 30d高 {hi30} / 低 {lo30} · 当前位于30d区间 {pos30}% 位")
+        print(f"- MA7 {round(ma7, 2)} {'>' if ma7 > ma30 else '<' if ma7 < ma30 else '='} MA30 {round(ma30, 2)}"
+              f"（{'多头' if ma7 > ma30 else '空头' if ma7 < ma30 else '走平'}排列）")
+        print(f"- 近7日 {up7}阳{7 - up7}阴 · 当前连{'阳' if up else '阴'} {streak} 天"
+              f" · 30d日波动率σ {vol30}%")
     else:
         print("- (no daily kline)")
+    print()
+
+    print("## 近7日K线明细 / Last 7 daily candles")
+    if len(candles) >= 2:
+        for i in range(max(1, len(candles) - 7), len(candles)):
+            c = candles[i]
+            prev = candles[i - 1]["close"]
+            pct = round((c["close"] - prev) / prev * 100, 2) if prev else None
+            bull = "阳" if c["close"] >= c["open"] else "阴"
+            print(f"- {c['date']} {bull} {pct if pct is not None else '?'}%"
+                  f"  开 {c['open']} → 收 {c['close']} (低 {c['low']} / 高 {c['high']})")
+    else:
+        print("- (insufficient data)")
+    print()
+
+    print("## 周线(近52周) / Weekly kline")
+    weekly = _klines(s, 3)[-52:]
+    if weekly:
+        hi52 = max(c["high"] for c in weekly)
+        lo52 = min(c["low"] for c in weekly)
+        lastp = closes[-1] if closes else weekly[-1]["close"]
+        print(f"- 52周高 {hi52} / 低 {lo52}")
+        print(f"- 距52周高点 {round((lastp - hi52) / hi52 * 100, 2)}%"
+              f" · 距52周低点 +{round((lastp - lo52) / lo52 * 100, 2)}%")
+    else:
+        print("- (unavailable)")
     print()
 
     print("## 区间涨跌(独立数据源) / Returns 1D/7D/1M/1Y")
